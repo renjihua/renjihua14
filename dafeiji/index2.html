@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+
+	<head>
+		<meta charset="utf-8" />
+		<title>打飞机</title>
+		<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no" />
+		<style type="text/css">
+			* {
+				padding: 0;
+				margin: 0;
+			}
+			
+			body,html {
+				width: 100%;
+				height: 100%;
+				overflow: hidden;
+			}
+			
+			#wrap {
+				position: relative;
+				height: 100%;
+			}
+			
+			#map {
+				display: block;
+			}
+			
+			#score {
+				position: absolute;
+				left: 0;
+				top: 0;
+			}
+			
+			#loading {
+				position: absolute;
+				text-align: center;
+				left: 50%;
+				top: 50%;
+				transform: translate(-50%, -50%);
+			}
+			
+			#menu {
+				list-style: none;
+				position: absolute;
+				width: 160px;
+				height: 160px;
+				border: 1px solid black;
+				border-radius: 5px;
+				left: 0;
+				right: 0;
+				top: 0;
+				bottom: 0;
+				margin: auto;
+				text-align: center;
+				line-height: 40px;
+				background: #BBC1C2;
+				display: none;
+			}
+			
+			#end_score {
+				line-height: 80px;
+				border-top: 1px solid black;
+				border-bottom: 1px solid black;
+			}
+			
+			#restart {
+				/*改变鼠标的样式*/
+				cursor: pointer;
+				/*通过css取消点击选中,IE10不支持,标准浏览器加上前缀*/
+				-webkit-user-select: none;
+				-moz-user-select: none;
+				-ms-user-select: none;
+				user-select: none;
+			}
+		</style>
+	</head>
+
+	<body>
+		<div id="wrap">
+			<canvas id="map" width="" height=""></canvas>
+			<p id="score">分数:0</p>
+			<!--加载区域-->
+			<div id="loading">
+				<img src="img/loading.gif" />
+				<p>游戏加载中</p>
+			</div>
+			<!--菜单区域-->
+			<ul id="menu">
+				<li>飞机大战分数</li>
+				<li id="end_score">0</li>
+				<li id="restart">重新开始</li>
+			</ul>
+		</div>
+	</body>
+
+</html>
+<script src="http://libs.baidu.com/jquery/2.0.0/jquery.min.js"></script>
+<script type="text/javascript">
+	var oCan = $("#map");
+	var ctx = oCan.get(0).getContext("2d");
+	var oScore = $("#score");
+	var oLoad = $("#loading");
+	var oMenu = $("#menu");
+	var oEndScore = $("#end_score");
+	var oRestart = $("#restart");
+	//	给画布指定宽高
+	oCan.get(0).width = $(document).width();
+	oCan.get(0).height = $(window).height();
+	//	oCan.css("background","yellow");
+	//	预加载
+	var imgNames = ["background.png", "bullet1.png", "bullet2.png", "enemy1.png", "enemy2.png", "enemy3.png", "herofly.png", "loading.gif", "prop.png"];
+	//	用来记录加载完成后的图片个数
+	var imgCount = 0;
+	for (var i = 0; i < imgNames.length; i++) {
+		$("<img />").prop("src", "img/" + imgNames[i]).load(function() {
+			imgCount++;
+			if (imgCount == imgNames.length) {
+				//	图片预加载完毕
+				console.log("所有图片加载完毕");
+//				oScore.text("cccc");
+				//	音频文件预加载
+		
+				preloadMusic();
+			}
+		});
+	}
+	//	所有音频对象
+	var musics = [];
+
+	function preloadMusic() {
+		var count = 0;
+		var audioNames = ["bullet.mp3", "enemy1_down.mp3", "enemy2_down.mp3", "enemy3_down.mp3", "game_music.mp3", "game_over.mp3"];
+		for (var i = 0; i < audioNames.length; i++) {
+			var newAudio = $("<audio />").prop("src", "audio/" + audioNames[i]).get(0);
+			musics.push(newAudio);
+			//	音频和视频元数据被加载成功的方法
+//			newAudio.onloadedmetadata = function() {
+//				count++;
+//				if (count == audioNames.length) {
+//					console.log("所有音频文件加载成功");
+//					//	1.loading模块消失
+//					//	2.游戏音乐响起来
+//					musics[4].loop = true;
+//					//	范围0-1,1最大
+//					musics[4].volume = 1;
+//					musics[4].play();
+//					//	开始游戏流程
+//				}
+//			}
+		}
+		oLoad.css("display", "none");
+		main();
+	}
+	var img = new Image();
+	img.src = "img/background.png";
+	//	背景对象(有且只有一个)
+	var background = {
+		//	背景在往下走
+		y: 0,
+		//	绘制,(原图不失真)
+		draw: function() {
+			//	竖直方向个数
+			var row = Math.ceil(oCan.height() / 568);
+			var col = Math.ceil(oCan.width() / 320);
+			//	控制数值平铺
+			for (var i = -row; i <= row; i++) {
+				//	控制水平平铺
+				for (var j = 0; j < col; j++) {
+					//	绘制背景图片
+					ctx.drawImage(img, j * 320, i * 568 + this.y, 320, 568);
+				}
+			}
+		},
+		//	移动
+		move: function() {
+			this.y++;
+			var row = Math.ceil(oCan.height() / 568);
+			//	解决bug
+			if (this.y >= row * 568) {
+				//	置空,从0位置开始
+				this.y = 0;
+			}
+		}
+	};
+	var heroImg = new Image();
+	heroImg.src = "img/herofly.png";
+	//	hero英雄对象
+	var hero = {
+		//	记录英雄是否爆炸
+		boom: false,
+		w: 66,
+		h: 82,
+		//	x,y在画布中的位置
+		x: oCan.width() / 2 - 33,
+		y: oCan.height() - 182,
+		//	控制图片的切换
+		i: 0,
+		//	控制图片的切换频率
+		flagI: 0,
+		//	跟发射子弹有关的属性
+		amyType:0,//0,1 0为单排子弹,1双排子弹
+		//	发射出来的子弹集合
+		bullets:[],
+		//	子弹发射频率
+		flagS:0,
+		draw: function() {
+			this.flagI++;
+			if (this.flagI == 10) {
+				if (this.boom) {
+					//	爆炸了
+					//	1.动画走一遍
+					this.i++;
+					if(this.i == 5){
+						//	爆炸动画结束
+						gameOver();
+					}
+					//	2.游戏结束
+					gameOver();
+				} else {
+					this.i = (++this.i) % 2;
+				}
+				//	置空
+				this.flagI = 0;
+			}
+			//	绘制飞机
+			ctx.drawImage(heroImg, this.i * this.w, 0, this.w, this.h, this.x, this.y, this.w, this.h);
+		},
+		shoot:function(){
+			if(!this.boom){
+				//	不爆炸发射
+				this.flagS++;
+			}
+			if(this.flagS == 5){
+				//	播放子弹声音
+				musics[0].play();
+				if(this.amyType){
+					//	双排子弹
+					var bullet = new Bullet(this.x + this.w / 2 - 24,this.y + 22,48,14,$("<img />").prop("src","img/bullet2.png").get(0),2);
+				}else{
+					//	单排子弹
+					var bullet = new Bullet(this.x + this.w / 2 - 3,this.y - 20,6,14,$("<img />").prop("src","img/bullet1.png").get(0),1);
+				}
+				//	新创建的子弹对象放到子弹集合中
+				this.bullets.push(bullet);
+				
+				//	置空
+				this.flagS = 0;
+			}
+			//	移动子弹集合中的每一个子弹
+			for(var i = 0;i < this.bullets.length;i++){
+				//	判断子弹有没有超出画布范围
+				if(this.bullets[i].y <= -this.bullets[i].h){
+					//	删除子弹
+					this.bullets.splice(i,1);
+					i--;
+				}else{
+					//	移动这颗子弹
+					this.bullets[i].move();
+					this.bullets[i].draw();
+				}
+			}
+		}
+	};
+	
+	//	子弹类
+	function Bullet(x,y,w,h,img,hurt){
+		//	属性
+		this.x = x;
+		this.y = y;
+		this.w = w;
+		this.h = h;
+		this.img = img;
+		this.hurt = hurt;
+	}
+	Bullet.prototype = {
+		constructor:Bullet,
+		draw:function(){
+			ctx.drawImage(this.img,this.x,this.y);
+		},
+		move:function(){
+			this.y -= 8;	
+		}
+	};
+	
+	//	控制hero的移动
+	oCan.mousedown(function(ev){
+		//	鼠标按下去的位置
+		var disX = ev.pageX;
+		var disY = ev.pageY;
+		//	判断触摸点是否在飞机(hero)所在的区域
+		if(disX >= hero.x && disX<= hero.x + hero.w && disY >= hero.y && disY <= hero.y + hero.h){
+			//	说明触摸点在飞机区域
+			oCan.mousemove(function(ev){
+				hero.x = ev.pageX - hero.w / 2;
+				hero.y = ev.pageY - hero.h / 2;
+			});
+			oCan.mouseup(function(){
+				$(this).off("mousemove mouseup");
+			});
+		}
+	});
+	
+	//	移动端控制移动
+	function start(ev){
+		ev = ev || event;
+		//	触摸点对象
+		var touchObj = ev.touches[0];
+		var disX = touchObj.pageX;
+		var disY = touchObj.pageY;
+		if(disX >= hero.x && disX <= hero.x + hero.w && disY >= hero.y && disY <= hero.y+ hero.h){
+			oCan.get(0).addEventListener("touchmove",move);
+			//	给end事件绑定函数
+			oCan.get(0).addEventListener("touchend",end);
+			//	取消该事件默认操作
+			ev.preventDefault();
+		}
+		function move(ev){
+			ev = ev || event;
+			var touchObj = ev.touches[0];
+			hero.x = touchObj.pageX - hero.w / 2;
+			hero.y = touchObj.pageY - hero.h / 2;
+			ev.preventDefault();
+		}
+		function end(){
+			oCan.get(0).removeEventListener("touchmove",move);
+			oCan.get(0).removeEventListener("touchend",end);
+		}
+	}
+	
+	oCan.get(0).addEventListener("touchstart",start);
+	
+	//	游戏结束方法
+	function gameOver() {
+		console.log("游戏结束");
+	}
+	//	主体流程
+	function main() {
+		ctx.clearRect(0, 0, oCan.width(), oCan.height());
+		//	背景绘制
+		background.draw();
+		//	背景移动
+		background.move();
+		//	绘制英雄
+		hero.draw();
+		//	英雄发子弹
+		hero.shoot();
+		requestAnimationFrame(main);
+	};
+	//	更改窗口大小
+	$(window).resize(function() {
+		//	设置画布的大小
+		oCan.get(0).width = $(document).width();
+		oCan.get(0).height = $(window).height();
+	});
+</script>
